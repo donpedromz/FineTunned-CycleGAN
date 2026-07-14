@@ -42,21 +42,21 @@ Chain strategy: feature-branch-chain
 
 ## Phase 4: Core — Training (src/training.py)
 
-- [ ] 4.1 Implement `lsa_gan_loss()` (MSE), `cycle_loss()` (L1), `identity_loss()` (L1) — ~25 lines
-- [ ] 4.2 Implement `train_cyclegan()` with image pool (size 50), linear LR decay, registry checkpointing every 10 epochs — ~120 lines
-- [ ] 4.3 Smoke test: train 2 epochs on small subset, verify losses decrease and checkpoint saved
+- [x] 4.1 Implement `lsa_gan_loss()` (MSE), `cycle_loss()` (L1), `identity_loss()` (L1) — ~25 lines
+- [x] 4.2 Implement `train_cyclegan()` with image pool (size 50), linear LR decay, registry checkpointing every 10 epochs — ~120 lines
+- [x] 4.3 Smoke test: train 2 epochs on small subset, verify losses decrease and checkpoint saved
 
 ## Phase 5: Core — Evaluation (src/evaluation.py)
 
-- [ ] 5.1 Implement `compute_fid()`, `compute_lpips()`, `create_visual_grid()` — ~80 lines
-- [ ] 5.2 Self-check: generate translations, compute metrics, render grid
+- [x] 5.1 Implement `compute_fid()`, `compute_lpips()`, `create_visual_grid()` — ~80 lines
+- [x] 5.2 Self-check: generate translations, compute metrics, render grid
 
 ## Phase 6: Notebook Integration
 
-- [ ] 6.1 Add training cell (config + run train_cyclegan)
-- [ ] 6.2 Add evaluation cell (FID + LPIPS + visual grid)
-- [ ] 6.3 Add model selection cell (list experiments DataFrame, pick run_id, load for inference)
+- [x] 6.1 Add training cell (config + run train_cyclegan)
+- [x] 6.2 Add evaluation cell (FID + LPIPS + visual grid)
+- [x] 6.3 Add model selection cell (list experiments DataFrame, pick run_id, load for inference)
 
 ## Phase 7: Dependencies
 
-- [ ] 7.1 Update `pyproject.toml` with lpips, clean-fid, scipy; run `uv sync`
+- [x] 7.1 Update `pyproject.toml` with lpips, clean-fid, scipy; run `uv sync`
