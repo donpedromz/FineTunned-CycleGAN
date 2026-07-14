@@ -103,6 +103,35 @@ class CheckpointMapper:
         return remapped
 
 
+class PatchGANDiscriminator(nn.Module):
+    """70×70 PatchGAN discriminator (InstanceNorm, no sigmoid).
+
+    Output is an (B, 1, N, N) patch map where each element classifies a
+    70×70 receptive field as real/fake. Used with LSGAN (MSE) loss.
+    """
+
+    def __init__(self, input_nc: int = 3) -> None:
+        super().__init__()
+        layers: list[nn.Module] = [
+            nn.Conv2d(input_nc, 64, kernel_size=4, stride=2, padding=1),  # N/2
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),  # N/4
+            nn.InstanceNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(128, 256, kernel_size=4, stride=1, padding=1),  # N/4
+            nn.InstanceNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(256, 512, kernel_size=4, stride=1, padding=1),  # N/4 - 2
+            nn.InstanceNorm2d(512),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(512, 1, kernel_size=4, stride=1, padding=1),  # N/4 - 3
+        ]
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.model(x)
+
+
 class ResNetBlock(nn.Module):
     """Residual block with skip connection: Conv → IN → ReLU → Conv → IN."""
 
@@ -178,6 +207,21 @@ class ResNetGenerator(nn.Module):
             nn.Tanh(),
         )
 
+    def freeze_encoder(self) -> None:
+        """Freeze encoder layers (enc1/enc2/enc3) for fine-tuning."""
+        for name, param in self.named_parameters():
+            if name.startswith(("enc1.", "enc2.", "enc3.")):
+                param.requires_grad = False
+
+    def unfreeze(self) -> None:
+        """Unfreeze all parameters."""
+        for param in self.parameters():
+            param.requires_grad = True
+
+    def trainable_parameters(self) -> list[nn.Parameter]:
+        """Return only parameters with requires_grad=True."""
+        return [p for p in self.parameters() if p.requires_grad]
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.enc1(x)
         x = self.enc2(x)
@@ -243,6 +287,7 @@ class ResNetGenerator(nn.Module):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
+    # Generator self-check
     model = ResNetGenerator()
     n_params = sum(p.numel() for p in model.parameters())
     x = torch.randn(1, 3, 256, 256)
@@ -250,7 +295,39 @@ if __name__ == "__main__":
 
     assert out.shape == (1, 3, 256, 256), f"Expected (1,3,256,256), got {out.shape}"
     assert out.min() >= -1.0 and out.max() <= 1.0, "Output not in [-1, 1]"
-
     print(
-        f"self-check OK — {n_params:,} params, output {tuple(out.shape)} in [{out.min():.2f}, {out.max():.2f}]"
+        f"Generator OK — {n_params:,} params, output {tuple(out.shape)} "
+        f"in [{out.min():.2f}, {out.max():.2f}]"
     )
+
+    # Freeze/unfreeze check
+    model.freeze_encoder()
+    enc_frozen = sum(
+        1
+        for n, p in model.named_parameters()
+        if n.startswith(("enc1.", "enc2.", "enc3.")) and not p.requires_grad
+    )
+    dec_trainable = sum(
+        1
+        for n, p in model.named_parameters()
+        if not n.startswith(("enc1.", "enc2.", "enc3.")) and p.requires_grad
+    )
+    assert enc_frozen > 0, "Encoder params should be frozen"
+    assert dec_trainable > 0, "Decoder/ResNet params should still be trainable"
+    assert len(model.trainable_parameters()) == dec_trainable
+    print(f"Freeze OK — {enc_frozen} encoder params frozen, {dec_trainable} trainable")
+
+    model.unfreeze()
+    assert all(p.requires_grad for p in model.parameters()), (
+        "Unfreeze should restore all grads"
+    )
+
+    # Discriminator self-check
+    disc = PatchGANDiscriminator()
+    d_params = sum(p.numel() for p in disc.parameters())
+    d_out = disc(x)
+    assert d_out.shape[0] == 1 and d_out.shape[1] == 1, (
+        f"Unexpected disc output: {d_out.shape}"
+    )
+    print(f"Discriminator OK — {d_params:,} params, output {tuple(d_out.shape)}")
+    print("All self-checks passed.")
