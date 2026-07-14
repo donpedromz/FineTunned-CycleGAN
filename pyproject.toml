@@ -1,0 +1,12 @@
+[project]
+name = "finetunned-cyclegan"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "kagglehub>=1.0.2",
+    "pillow>=11.0.0",
+    "matplotlib>=3.9.0",
+    "ipykernel>=6.29.0",
+]
