@@ -22,3 +22,6 @@ Thumbs.db
 .env.*
 
 .ruff_cache
+
+# Downloaded checkpoints
+checkpoints/
