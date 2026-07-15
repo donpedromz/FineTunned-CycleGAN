@@ -1,9 +1,7 @@
 """Model evaluation: FID, LPIPS, and visual translation grids.
 
-Thin wrappers around ``clean-fid`` and ``lpips`` (lazy-imported) plus a
-matplotlib grid renderer. Every metric accepts directories of images, keeping
-the module open for extension (new metrics just need a directory-based
-``compute_*`` function).
+Thin wrappers around ``torchmetrics`` plus a matplotlib grid renderer.
+Every metric accepts directories of images.
 
 Usage:
     fid = compute_fid("data/test/cheetah", "results/lion2cheetah")
@@ -31,12 +29,14 @@ from src.model import ResNetGenerator
 logger = logging.getLogger(__name__)
 
 
-# ── I/O helpers ────────────────────────────────────────────────────────────────
-
-
 def _load_tensor(path: str | Path, size: int = 256) -> torch.Tensor:
     """Load an image file as a (1,3,H,W) tensor normalised to [-1, 1]."""
-    img = Image.open(path).convert("RGB").resize((size, size), Image.BILINEAR)
+    img = (
+        Image.open(path)
+        .convert("RGBA")
+        .convert("RGB")
+        .resize((size, size), Image.Resampling.BILINEAR)
+    )
     arr = np.asarray(img, dtype=np.float32) / 255.0
     return torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0) * 2.0 - 1.0
 
@@ -47,9 +47,6 @@ def _save_tensor(tensor: torch.Tensor, path: str | Path) -> None:
         tensor = tensor[0]
     arr = ((tensor.clamp(-1, 1) + 1.0) / 2.0 * 255.0).permute(1, 2, 0).byte().numpy()
     Image.fromarray(arr).save(path)
-
-
-# ── Metrics ────────────────────────────────────────────────────────────────────
 
 
 def generate_translations(
@@ -76,65 +73,58 @@ def generate_translations(
     return saved
 
 
-def frechet_distance(
-    mu1: np.ndarray, sigma1: np.ndarray, mu2: np.ndarray, sigma2: np.ndarray
-) -> float:
-    """Standard Fréchet distance (scipy.linalg.sqrtm — numpy 2.x dropped it)."""
-    import scipy.linalg as sla
-
-    diff = mu1 - mu2
-    covmean = np.real(sla.sqrtm(sigma1 @ sigma2))
-    if not np.isfinite(covmean).all():
-        covmean = np.zeros_like(covmean)
-    return float(diff @ diff + np.trace(sigma1 + sigma2 - 2 * covmean))
+def _image_files(directory: str | Path) -> list[Path]:
+    _IMG_EXT = {".png", ".jpg", ".jpeg"}
+    return sorted(p for p in Path(directory).iterdir() if p.suffix.lower() in _IMG_EXT)
 
 
 def compute_fid(
     real_dir: str | Path, fake_dir: str | Path, device: str = "cpu"
 ) -> float:
-    """Fréchet Inception Distance between two image directories.
+    """Fréchet Inception Distance between two image directories (torchmetrics)."""
+    from torchmetrics.image.fid import FrechetInceptionDistance
 
-    Uses ``clean-fid`` for InceptionV3 feature extraction and computes the
-    Fréchet distance directly (clean-fid 0.1.35's bundled sqrtm call is
-    incompatible with scipy >= 1.13).
-    """
-    from cleanfid.features import build_feature_extractor
-    from cleanfid.fid import get_folder_features
-
-    model = build_feature_extractor("clean", device=device)
-    f1 = get_folder_features(str(real_dir), model=model, device=device, batch_size=32)
-    f2 = get_folder_features(str(fake_dir), model=model, device=device, batch_size=32)
-    mu1, sigma1 = f1.mean(axis=0), np.cov(f1, rowvar=False)
-    mu2, sigma2 = f2.mean(axis=0), np.cov(f2, rowvar=False)
-    return frechet_distance(mu1, sigma1, mu2, sigma2)
+    fid = FrechetInceptionDistance(feature=2048).to(device)
+    batch_size = 32
+    reals, fakes = _image_files(real_dir), _image_files(fake_dir)
+    with torch.no_grad():
+        for paths, split in [(reals, "real"), (fakes, "fake")]:
+            for i in range(0, len(paths), batch_size):
+                batch = torch.cat(
+                    [_load_tensor(p) for p in paths[i : i + batch_size]], dim=0
+                ).to(device)
+                batch = (batch.clamp(-1, 1) + 1.0) / 2.0
+                batch = (batch * 255.0).clamp(0, 255).to(torch.uint8)
+                fid.update(batch, real=(split == "real"))
+    return float(fid.compute().item())
 
 
 def compute_lpips(
     real_dir: str | Path, fake_dir: str | Path, device: str = "cpu"
 ) -> float:
-    """Mean LPIPS (AlexNet) between index-aligned image pairs (lpips library)."""
-    import lpips
+    """Mean LPIPS (AlexNet) between index-aligned image pairs (torchmetrics)."""
+    from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
-    loss_fn = lpips.LPIPS(net="alex").to(device)
-    reals = sorted(
-        p
-        for p in Path(real_dir).iterdir()
-        if p.suffix.lower() in {".png", ".jpg", ".jpeg"}
-    )
-    fakes = sorted(
-        p
-        for p in Path(fake_dir).iterdir()
-        if p.suffix.lower() in {".png", ".jpg", ".jpeg"}
-    )
+    metric = LearnedPerceptualImagePatchSimilarity(net_type="alex").to(device)
+    reals, fakes = _image_files(real_dir), _image_files(fake_dir)
     n = min(len(reals), len(fakes))
     if n == 0:
         raise ValueError("No paired images found for LPIPS")
+    batch_size = 32
     vals: list[float] = []
     with torch.no_grad():
-        for i in range(n):
-            r = _load_tensor(reals[i]).to(device)
-            f = _load_tensor(fakes[i]).to(device)
-            vals.append(loss_fn(r, f).item())
+        for i in range(0, n, batch_size):
+            r_batch = torch.cat(
+                [_load_tensor(reals[j]) for j in range(i, min(i + batch_size, n))],
+                dim=0,
+            ).to(device)
+            f_batch = torch.cat(
+                [_load_tensor(fakes[j]) for j in range(i, min(i + batch_size, n))],
+                dim=0,
+            ).to(device)
+            r_batch = (r_batch.clamp(-1, 1) + 1.0) / 2.0
+            f_batch = (f_batch.clamp(-1, 1) + 1.0) / 2.0
+            vals.append(metric(r_batch, f_batch).item())
     return float(np.mean(vals))
 
 
@@ -153,8 +143,13 @@ def create_visual_grid(
     import matplotlib.pyplot as plt
 
     root = Path(test_root)
-    lions = sorted((root / "lion").glob("*"))[:n]
-    cheetahs = sorted((root / "cheetah").glob("*"))[:n]
+    _IMG_EXT = {".png", ".jpg", ".jpeg"}
+    lions = sorted(
+        p for p in (root / "lion").iterdir() if p.suffix.lower() in _IMG_EXT
+    )[:n]
+    cheetahs = sorted(
+        p for p in (root / "cheetah").iterdir() if p.suffix.lower() in _IMG_EXT
+    )[:n]
     gen_ab.to(device).eval()
     gen_ba.to(device).eval()
 
@@ -165,28 +160,29 @@ def create_visual_grid(
             arr = arr[0]
         return arr.permute(1, 2, 0).numpy() * 0.5 + 0.5
 
-    fig, axes = plt.subplots(2, n, figsize=(3 * n, 6))
+    fig, axes = plt.subplots(2, 2 * n, figsize=(3 * 2 * n, 6))
     with torch.no_grad():
-        for j, p in enumerate(lions or []):
+        for j, p in enumerate(lions):
             axes[0, j].imshow(_to_img(_load_tensor(p)))
             axes[1, j].imshow(_to_img(gen_ab(_load_tensor(p).to(device))))
-        if lions and cheetahs:
-            for j, p in enumerate(cheetahs):
-                axes[0, j].imshow(_to_img(_load_tensor(p)))
-                axes[1, j].imshow(_to_img(gen_ba(_load_tensor(p).to(device))))
+        for j, p in enumerate(cheetahs):
+            col = j + n
+            axes[0, col].imshow(_to_img(_load_tensor(p)))
+            axes[1, col].imshow(_to_img(gen_ba(_load_tensor(p).to(device))))
     for ax in axes.flat:
         ax.axis("off")
     axes[0, 0].set_ylabel("source", fontsize=10)
     axes[1, 0].set_ylabel("translated", fontsize=10)
-    fig.suptitle("lion→cheetah (top half) · cheetah→lion (bottom half)", fontsize=10)
+    if n > 0 and len(lions) > 0:
+        axes[0, n - 1].set_title("lion→cheetah", fontsize=9)
+    if n > 0 and len(cheetahs) > 0:
+        axes[0, n].set_title("cheetah→lion", fontsize=9)
+    fig.suptitle("lion→cheetah (left) · cheetah→lion (right)", fontsize=10)
     fig.tight_layout()
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=110)
     plt.close(fig)
     return Path(out_path)
-
-
-# ── Self-check ─────────────────────────────────────────────────────────────────
 
 
 def _smoke_test() -> None:

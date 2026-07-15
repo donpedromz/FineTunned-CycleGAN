@@ -26,14 +26,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
+from tqdm import tqdm
 
 from src.model import PatchGANDiscriminator, ResNetGenerator
 from src.registry import ModelRegistry
 
 logger = logging.getLogger(__name__)
-
-
-# ── Losses (injectable) ────────────────────────────────────────────────────────
 
 
 def lsa_gan_loss(
@@ -56,9 +54,6 @@ def identity_loss(
 ) -> torch.Tensor:
     """L1 identity loss: G_AB(B) should equal B when B is already in target domain."""
     return criterion(same_domain, real)
-
-
-# ── Image pool ─────────────────────────────────────────────────────────────────
 
 
 class ImagePool:
@@ -86,9 +81,6 @@ class ImagePool:
         return image
 
 
-# ── Training loop ──────────────────────────────────────────────────────────────
-
-
 def train_cyclegan(
     gen_ab: nn.Module,
     gen_ba: nn.Module,
@@ -102,6 +94,7 @@ def train_cyclegan(
     gan_loss_fn=lsa_gan_loss,
     cycle_loss_fn=cycle_loss,
     identity_loss_fn=identity_loss,
+    progress: bool = True,
 ) -> dict[str, list[float]]:
     """Train a CycleGAN pair with frozen encoders and registry checkpointing.
 
@@ -133,19 +126,47 @@ def train_cyclegan(
     pool_a, pool_b = ImagePool(pool_size), ImagePool(pool_size)
     gan, l1 = nn.MSELoss(), nn.L1Loss()
     history: dict[str, list[float]] = {
-        k: [] for k in ("G_total", "D_total", "cycle", "identity")
+        k: []
+        for k in (
+            "G_total",
+            "D_total",
+            "cycle",
+            "identity",
+            "g_adv",
+            "d_a",
+            "d_b",
+            "lr",
+        )
     }
 
     for epoch in range(1, total_epochs + 1):
-        lr_factor = 1.0 - max(0, epoch - 1) / max(1, decay_epochs - 1)
+        n_decay = max(1, total_epochs - decay_epochs)
+        lr_factor = 1.0 - max(0, epoch - decay_epochs) / n_decay
         for pg in (*opt_g.param_groups, *opt_d.param_groups):
             pg["lr"] = lr * lr_factor
 
-        run = {"G_total": 0.0, "D_total": 0.0, "cycle": 0.0, "identity": 0.0, "n": 0}
-        for real_a, real_b in dl_train:
+        epoch_bar = tqdm(
+            dl_train,
+            desc=f"Epoch {epoch}/{total_epochs}",
+            unit="batch",
+            leave=True,
+            disable=not progress,
+        )
+        lr_now = lr * lr_factor
+        run = {
+            "G_total": 0.0,
+            "D_total": 0.0,
+            "cycle": 0.0,
+            "identity": 0.0,
+            "g_adv": 0.0,
+            "d_a": 0.0,
+            "d_b": 0.0,
+            "lr": lr_now,
+            "n": 0,
+        }
+        for real_a, real_b in epoch_bar:
             real_a, real_b = real_a.to(device), real_b.to(device)
 
-            # ── Generators ──
             fake_b, fake_a = gen_ab(real_a), gen_ba(real_b)
             rec_a, rec_b = gen_ba(fake_b), gen_ab(fake_a)
             id_b, id_a = gen_ab(real_b), gen_ba(real_a)
@@ -163,9 +184,12 @@ def train_cyclegan(
 
             opt_g.zero_grad()
             g_loss.backward()
+            torch.nn.utils.clip_grad_norm_(
+                gen_ab.trainable_parameters() + gen_ba.trainable_parameters(),
+                max_norm=1.0,
+            )
             opt_g.step()
 
-            # ── Discriminators (history buffer) ──
             fake_a_pool = pool_a.query(fake_a.detach())
             fake_b_pool = pool_b.query(fake_b.detach())
             d_a_loss = 0.5 * (
@@ -180,22 +204,35 @@ def train_cyclegan(
 
             opt_d.zero_grad()
             d_loss.backward()
+            torch.nn.utils.clip_grad_norm_(
+                list(d_a.parameters()) + list(d_b.parameters()), max_norm=1.0
+            )
             opt_d.step()
 
             run["G_total"] += g_loss.item()
             run["D_total"] += d_loss.item()
             run["cycle"] += cyc.item()
             run["identity"] += idt.item()
+            run["g_adv"] += g_adv.item()
+            run["d_a"] += d_a_loss.item()
+            run["d_b"] += d_b_loss.item()
             run["n"] += 1
+            epoch_bar.set_postfix(G=f"{g_loss.item():.3f}", D=f"{d_loss.item():.3f}")
+        epoch_bar.close()
 
-        for k in ("G_total", "D_total", "cycle", "identity"):
+        for k in ("G_total", "D_total", "cycle", "identity", "g_adv", "d_a", "d_b"):
             history[k].append(run[k] / max(1, run["n"]))
+        history["lr"].append(run["lr"])
         logger.info(
-            "epoch %d/%d  G=%.4f D=%.4f cyc=%.4f id=%.4f",
+            "epoch %d/%d  lr=%.1e  G=%.4f D=%.4f g_adv=%.4f d_a=%.4f d_b=%.4f cyc=%.4f id=%.4f",
             epoch,
             total_epochs,
+            run["lr"],
             history["G_total"][-1],
             history["D_total"][-1],
+            history["g_adv"][-1],
+            history["d_a"][-1],
+            history["d_b"][-1],
             history["cycle"][-1],
             history["identity"][-1],
         )
@@ -205,19 +242,60 @@ def train_cyclegan(
                 gen_ab,
                 gen_ba,
                 run_id=run_id,
-                epoch=epoch,
-                cycle_loss=float(history["cycle"][-1]),
-                approach=config.get("approach", "frozen-encoder"),
-                lr=lr,
-                lambda_cycle=lambda_cycle,
-                lambda_identity=lambda_identity,
+                config=config,
+                training_results={
+                    "epoch": epoch,
+                    "cycle_loss": float(history["cycle"][-1]),
+                    "g_loss": float(history["G_total"][-1]),
+                    "d_loss": float(history["D_total"][-1]),
+                },
+                base_checkpoint=config.get("base_checkpoint"),
             )
             logger.info("Checkpoint saved at epoch %d", epoch)
 
+    test_dir_a = config.get("test_dir_a")
+    test_dir_b = config.get("test_dir_b")
+    if (
+        test_dir_a
+        and test_dir_b
+        and Path(test_dir_a).is_dir()
+        and Path(test_dir_b).is_dir()
+    ):
+        from src.evaluation import compute_fid, compute_lpips, generate_translations
+
+        logger.info("Running post-training evaluation …")
+        gen_ab.eval(), gen_ba.eval()
+        with torch.no_grad():
+            tmp_a = Path(test_dir_a).parent / "_eval_fake_a"
+            tmp_b = Path(test_dir_b).parent / "_eval_fake_b"
+            generate_translations(gen_ab, test_dir_a, tmp_a, str(device))
+            generate_translations(gen_ba, test_dir_b, tmp_b, str(device))
+            fid_ab = compute_fid(test_dir_b, tmp_a, device=str(device))
+            fid_ba = compute_fid(test_dir_a, tmp_b, device=str(device))
+            lpips_ab = compute_lpips(test_dir_a, tmp_a, device=str(device))
+            lpips_ba = compute_lpips(test_dir_b, tmp_b, device=str(device))
+        registry.update_meta(
+            run_id,
+            evaluation={
+                "fid_ab": fid_ab,
+                "fid_ba": fid_ba,
+                "lpips_ab": lpips_ab,
+                "lpips_ba": lpips_ba,
+            },
+        )
+        history["fid_ab"] = [fid_ab]
+        history["fid_ba"] = [fid_ba]
+        history["lpips_ab"] = [lpips_ab]
+        history["lpips_ba"] = [lpips_ba]
+        logger.info(
+            "Eval done — FID: %.2f/%.2f, LPIPS: %.3f/%.3f",
+            fid_ab,
+            fid_ba,
+            lpips_ab,
+            lpips_ba,
+        )
+
     return history
-
-
-# ── Self-check ─────────────────────────────────────────────────────────────────
 
 
 def _select_device() -> torch.device:
@@ -255,7 +333,16 @@ def _smoke_test() -> None:
         with tempfile.TemporaryDirectory() as tmp:
             reg = ModelRegistry(tmp)
             hist = train_cyclegan(
-                gen_ab, gen_ba, d_a, d_b, dl, config, reg, "smoke001", dev
+                gen_ab,
+                gen_ba,
+                d_a,
+                d_b,
+                dl,
+                config,
+                reg,
+                "smoke001",
+                dev,
+                progress=False,
             )
             run_dir = Path(tmp) / "smoke001"
             assert (run_dir / "gen_AB.pth").exists() and (

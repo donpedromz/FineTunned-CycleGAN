@@ -282,12 +282,9 @@ class ResNetGenerator(nn.Module):
         return model.to(device)
 
 
-# ── Self-check ───────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
-    # Generator self-check
     model = ResNetGenerator()
     n_params = sum(p.numel() for p in model.parameters())
     x = torch.randn(1, 3, 256, 256)
@@ -300,7 +297,6 @@ if __name__ == "__main__":
         f"in [{out.min():.2f}, {out.max():.2f}]"
     )
 
-    # Freeze/unfreeze check
     model.freeze_encoder()
     enc_frozen = sum(
         1
@@ -322,7 +318,6 @@ if __name__ == "__main__":
         "Unfreeze should restore all grads"
     )
 
-    # Discriminator self-check
     disc = PatchGANDiscriminator()
     d_params = sum(p.numel() for p in disc.parameters())
     d_out = disc(x)
