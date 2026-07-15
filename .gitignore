@@ -25,3 +25,6 @@ Thumbs.db
 
 # Downloaded checkpoints
 checkpoints/
+
+# Evaluation results (regenerated on each run)
+results/

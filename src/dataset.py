@@ -81,10 +81,10 @@ class UnpairedDataset(Dataset):
 
     def _load_image(self, idx: int, paths: list[Path]) -> torch.Tensor:
         path = paths[idx % len(paths)]
-        img = Image.open(path).convert("RGB")
+        img = Image.open(path).convert("RGBA").convert("RGB")
 
-        # resize → random crop → h-flip
-        img = img.resize((self.load_size, self.load_size), Image.BILINEAR)
+        # resize > random crop > h-flip
+        img = img.resize((self.load_size, self.load_size), Image.Resampling.BILINEAR)
         w, h = img.size
         th, tw = self.img_size, self.img_size
         top = random.randint(0, h - th)
@@ -96,7 +96,12 @@ class UnpairedDataset(Dataset):
 
         import numpy as np
 
-        arr = 2.0 * torch.from_numpy(np.array(img, dtype=np.float32)).permute(2, 0, 1) / 255.0 - 1.0
+        arr = (
+            2.0
+            * torch.from_numpy(np.array(img, dtype=np.float32)).permute(2, 0, 1)
+            / 255.0
+            - 1.0
+        )
         return arr  # already (3, H, W)
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -128,8 +133,6 @@ def get_dataloaders(
         pin_memory=True,
     )
 
-
-# ── Self-check ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import tempfile
