@@ -17,9 +17,12 @@ data/
 .DS_Store
 Thumbs.db
 
-# Environment secrets
+# Environment secrets (real .env files ignored)
 .env
 .env.*
+
+# But NOT the template — that goes in git
+!.env.example
 
 .ruff_cache
 
@@ -28,3 +31,6 @@ checkpoints/
 
 # Evaluation results (regenerated on each run)
 results/
+
+# Cluster runtime scripts (dev machine-specific)
+scripts/run_jupyter.sh

@@ -91,12 +91,19 @@ def train_cyclegan(
     registry: ModelRegistry,
     run_id: str,
     device: torch.device,
+    initial_base_checkpoint: str | None = None,
     gan_loss_fn=lsa_gan_loss,
     cycle_loss_fn=cycle_loss,
     identity_loss_fn=identity_loss,
     progress: bool = True,
 ) -> dict[str, list[float]]:
     """Train a CycleGAN pair with frozen encoders and registry checkpointing.
+
+    Each ``checkpoint_interval`` epochs (and at the end) a new run is saved
+    with an ``{run_id}-e{epoch:02d}`` identifier. The first save's
+    ``base_checkpoint`` points to ``initial_base_checkpoint`` (e.g. the
+    pre-trained model); subsequent saves chain to the immediately previous
+    checkpoint, forming an auditable lineage.
 
     Returns a dict of per-epoch loss curves (lists, one value per epoch).
     """
@@ -138,6 +145,8 @@ def train_cyclegan(
             "lr",
         )
     }
+
+    last_saved_run_id: str | None = None
 
     for epoch in range(1, total_epochs + 1):
         n_decay = max(1, total_epochs - decay_epochs)
@@ -238,10 +247,16 @@ def train_cyclegan(
         )
 
         if epoch % checkpoint_interval == 0 or epoch == total_epochs:
+            run_id_epoch = f"{run_id}-e{epoch:02d}"
+            ckpt_base = (
+                initial_base_checkpoint
+                if last_saved_run_id is None
+                else f"checkpoints/experiments/{last_saved_run_id}"
+            )
             registry.save(
                 gen_ab,
                 gen_ba,
-                run_id=run_id,
+                run_id=run_id_epoch,
                 config=config,
                 training_results={
                     "epoch": epoch,
@@ -249,9 +264,10 @@ def train_cyclegan(
                     "g_loss": float(history["G_total"][-1]),
                     "d_loss": float(history["D_total"][-1]),
                 },
-                base_checkpoint=config.get("base_checkpoint"),
+                base_checkpoint=ckpt_base,
             )
-            logger.info("Checkpoint saved at epoch %d", epoch)
+            last_saved_run_id = run_id_epoch
+            logger.info("Checkpoint saved at epoch %d as %s", epoch, run_id_epoch)
 
     test_dir_a = config.get("test_dir_a")
     test_dir_b = config.get("test_dir_b")
@@ -275,7 +291,7 @@ def train_cyclegan(
             lpips_ab = compute_lpips(test_dir_a, tmp_a, device=str(device))
             lpips_ba = compute_lpips(test_dir_b, tmp_b, device=str(device))
         registry.update_meta(
-            run_id,
+            last_saved_run_id or run_id,
             evaluation={
                 "fid_ab": fid_ab,
                 "fid_ba": fid_ba,
@@ -344,10 +360,11 @@ def _smoke_test() -> None:
                 dev,
                 progress=False,
             )
-            run_dir = Path(tmp) / "smoke001"
+            last_ckpt = f"smoke001-e{config['epochs']:02d}"
+            run_dir = Path(tmp) / last_ckpt
             assert (run_dir / "gen_AB.pth").exists() and (
                 run_dir / "meta.json"
-            ).exists(), "Final checkpoint not saved"
+            ).exists(), f"Final checkpoint not saved in {run_dir}"
         return hist
 
     try:
