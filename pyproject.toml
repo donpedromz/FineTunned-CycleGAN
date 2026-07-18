@@ -10,10 +10,23 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "matplotlib>=3.9.0",
     "ipykernel>=6.29.0",
-    "torch>=2.13.0",
-    "torchvision>=0.28.0",
+    "torch>=2.2.0,<2.6",
+    "torchvision>=0.17.0,<0.20",
     "ipywidgets>=8.1.8",
     "pandas>=2.2.0",
     "torchmetrics[image]>=1.0.0",
     "tqdm>=4.60.0",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu121", marker = "sys_platform == 'linux'" },
+]
+torchvision = [
+    { index = "pytorch-cu121", marker = "sys_platform == 'linux'" },
 ]
