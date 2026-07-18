@@ -15,6 +15,7 @@ import warnings
 from pathlib import Path
 
 import kagglehub
+from dotenv import load_dotenv
 from PIL import Image, UnidentifiedImageError
 
 
@@ -47,6 +48,7 @@ def check_kaggle_auth() -> None:
 
     Raises KaggleAuthError if none are found.
     """
+    load_dotenv()
     if "KAGGLE_API_TOKEN" in os.environ:
         return
 
