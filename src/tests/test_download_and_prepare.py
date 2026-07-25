@@ -33,8 +33,9 @@ def test_validate_images_rejects_wrong_size():
         bad = Path(tmp) / "bad.png"
         _dummy_image(bad, (200, 200))
 
-        with pytest.raises(ImageProcessingError):
-            validate_images([bad], "test")
+        with pytest.warns(UserWarning, match="discarding"):
+            with pytest.raises(ImageProcessingError):
+                validate_images([bad], "test")
 
 
 def test_validate_images_raises_on_empty():
