@@ -47,6 +47,11 @@ uv sync
 
 ## Entrenamiento
 
+> ⚠️ **Siempre usar `python -m scripts.train`**, no `python scripts/train.py`.
+> El flag `-m` hace que Python agregue el directorio raíz al `sys.path`,
+> permitiendo los imports `from src.xxx` sin necesidad de hacks ni variables
+> de entorno. Funciona desde cualquier subdirectorio del proyecto.
+
 ### Opción 1 — Notebook interactivo
 
 ```bash
@@ -62,18 +67,18 @@ evaluación y selección del mejor modelo.
 ```bash
 # Preparar dataset + entrenar en background (redirigir a archivo de log)
 mkdir -p logs
-nohup uv run python scripts/train.py --prepare > logs/train_20260725.log 2>&1 &
+nohup uv run python -m scripts.train --prepare > logs/train_20260725.log 2>&1 &
 
 # Dataset ya preparado, solo entrenar
-nohup uv run python scripts/train.py > logs/train_20260725.log 2>&1 &
+nohup uv run python -m scripts.train > logs/train_20260725.log 2>&1 &
 
 # Personalizar hiperparámetros
-nohup uv run python scripts/train.py \
+nohup uv run python -m scripts.train \
     --epochs 30 --lr 1e-4 --checkpoint-interval 5 \
     > logs/train_20260725.log 2>&1 &
 
 # Uso interactivo (con barra de progreso tqdm)
-uv run python scripts/train.py --progress
+uv run python -m scripts.train --progress
 ```
 
 ### Parámetros de `scripts/train.py`
@@ -106,10 +111,31 @@ uv run python scripts/train.py --progress
 | `--base-checkpoint-dir` | `checkpoints/horse2zebra` | Directorio con los checkpoints pre-entrenados `gen_AB.pth` y `gen_BA.pth` |
 | | | |
 | **Runtime** | | |
-| `--gpu` | `auto` | Selección de dispositivo: `auto` usa heurística (>1 GiB libre en GPU), `cuda` fuerza GPU, `cpu` fuerza CPU |
+| `--gpu` | `auto` | Selección de dispositivo: `auto` usa heurística (>1 GiB libre en GPU), `cuda` fuerza GPU, `cpu` fuerza CPU. Para elegir una GPU concreta usá `CUDA_VISIBLE_DEVICES=N` |
 | `--progress` | off | Mostrar barra de progreso tqdm por epoch (útil en terminal interactiva; desactivado por defecto para no ensuciar logs de nohup) |
 
-> Todos los flags: `uv run python scripts/train.py --help`
+> Todos los flags: `uv run python -m scripts.train --help`
+
+### Selección de GPU en servidores con múltiples GPUs
+
+En un clúster con varias GPUs, `--gpu auto` elige la que tenga ≥1 GiB libre,
+pero podés forzar una GPU específica con `CUDA_VISIBLE_DEVICES`:
+
+```bash
+# Ver GPUs disponibles
+nvidia-smi
+
+# Seleccionar GPU 1 y entrenar
+export CUDA_VISIBLE_DEVICES=1
+uv run python -m scripts.train
+
+# O en una línea (sin export persistente)
+CUDA_VISIBLE_DEVICES=2 nohup uv run python -m scripts.train --prepare \
+    > logs/train_20260725.log 2>&1 &
+```
+
+> `CUDA_VISIBLE_DEVICES` funciona a nivel de proceso — cada script ve solo la GPU
+> asignada, sin afectar otros procesos del usuario.
 
 ## Evaluación
 
