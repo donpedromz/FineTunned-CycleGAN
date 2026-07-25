@@ -317,4 +317,5 @@ def prepare_dataset() -> dict:
 
 
 if __name__ == "__main__":
-    prepare_dataset()
+    logging.basicConfig(level=logging.INFO)
+    print("download_and_prepare module — run via pytest")

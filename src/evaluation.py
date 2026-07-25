@@ -14,11 +14,7 @@ from __future__ import annotations
 
 import logging
 import math
-import sys
-import tempfile
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 import torch
@@ -185,45 +181,6 @@ def create_visual_grid(
     return Path(out_path)
 
 
-def _smoke_test() -> None:
-    torch.manual_seed(0)
-    device = "cpu"
-    gen_ab, gen_ba = ResNetGenerator().to(device), ResNetGenerator().to(device)
-
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        real_dir, fake_dir = root / "real", root / "fake"
-        real_dir.mkdir(), fake_dir.mkdir()
-        for i in range(8):
-            _save_tensor(
-                gen_ab(torch.randn(1, 3, 256, 256))[0], real_dir / f"img_{i}.png"
-            )
-            _save_tensor(
-                gen_ba(torch.randn(1, 3, 256, 256))[0], fake_dir / f"img_{i}.png"
-            )
-
-        fid_score = compute_fid(real_dir, fake_dir, device=device)
-        lpips_score = compute_lpips(real_dir, fake_dir, device=device)
-        assert math.isfinite(fid_score), f"FID not finite: {fid_score}"
-        assert math.isfinite(lpips_score), f"LPIPS not finite: {lpips_score}"
-
-        (root / "lion").mkdir(), (root / "cheetah").mkdir()
-        for i in range(8):
-            _save_tensor(
-                gen_ab(torch.randn(1, 3, 256, 256))[0], root / "lion" / f"l_{i}.png"
-            )
-            _save_tensor(
-                gen_ba(torch.randn(1, 3, 256, 256))[0], root / "cheetah" / f"c_{i}.png"
-            )
-        grid = root / "grid.png"
-        create_visual_grid(gen_ab, gen_ba, root, grid, n=4, device=device)
-        assert grid.exists() and grid.stat().st_size > 0
-        grid_size = grid.stat().st_size
-
-    print(f"evaluation self-check PASSED — FID={fid_score:.3f} LPIPS={lpips_score:.3f}")
-    print(f"grid written, {grid_size} bytes")
-
-
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    _smoke_test()
+    print("evaluation module — run via pytest")

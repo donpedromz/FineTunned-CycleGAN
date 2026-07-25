@@ -17,15 +17,11 @@ from __future__ import annotations
 
 import logging
 import random
-import sys
-import tempfile
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.model import PatchGANDiscriminator, ResNetGenerator
@@ -325,63 +321,6 @@ def _select_device() -> torch.device:
     return torch.device("cpu")
 
 
-def _smoke_test() -> None:
-    torch.manual_seed(0)
-    device = _select_device()
-    n, bs = 4, 2
-    dl = DataLoader(
-        TensorDataset(torch.randn(n, 3, 256, 256), torch.randn(n, 3, 256, 256)),
-        batch_size=bs,
-        shuffle=True,
-    )
-    config = {
-        "epochs": 3,
-        "lr": 2e-4,
-        "decay_epochs": 100,
-        "lambda_cycle": 10.0,
-        "lambda_identity": 0.5,
-        "checkpoint_interval": 10,
-    }
-
-    def _run(dev: torch.device) -> dict[str, list[float]]:
-        gen_ab, gen_ba = ResNetGenerator().to(dev), ResNetGenerator().to(dev)
-        d_a, d_b = PatchGANDiscriminator().to(dev), PatchGANDiscriminator().to(dev)
-        with tempfile.TemporaryDirectory() as tmp:
-            reg = ModelRegistry(tmp)
-            hist = train_cyclegan(
-                gen_ab,
-                gen_ba,
-                d_a,
-                d_b,
-                dl,
-                config,
-                reg,
-                "smoke001",
-                dev,
-                progress=False,
-            )
-            last_ckpt = f"smoke001-e{config['epochs']:02d}"
-            run_dir = Path(tmp) / last_ckpt
-            assert (run_dir / "gen_AB.pth").exists() and (
-                run_dir / "meta.json"
-            ).exists(), f"Final checkpoint not saved in {run_dir}"
-        return hist
-
-    try:
-        history = _run(device)
-    except torch.cuda.OutOfMemoryError:
-        logger.warning("CUDA OOM — retrying smoke test on CPU")
-        history = _run(torch.device("cpu"))
-
-    assert min(history["G_total"]) < history["G_total"][0], (
-        f"G loss never decreased from start: {history['G_total'][0]:.4f} -> {history['G_total']}"
-    )
-    print(
-        f"training self-check PASSED ({device.type}) — "
-        f"G loss {history['G_total'][0]:.4f} -> {min(history['G_total']):.4f}"
-    )
-
-
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    _smoke_test()
+    _select_device()
