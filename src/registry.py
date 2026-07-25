@@ -21,6 +21,8 @@ from pathlib import Path
 import torch
 from torch import nn
 
+from src.model import ResNetGenerator
+
 logger = logging.getLogger(__name__)
 
 
@@ -255,13 +257,6 @@ class ModelRegistry:
         Raises:
             RunNotFoundError: run_id does not exist.
         """
-        import sys
-
-        _parent = str(Path(__file__).resolve().parent.parent)
-        if _parent not in sys.path:
-            sys.path.insert(0, _parent)
-        from src.model import ResNetGenerator
-
         run_dir = self.base_dir / run_id
         if not run_dir.is_dir():
             raise RunNotFoundError(f"Run not found: {run_id}")
@@ -280,91 +275,6 @@ class ModelRegistry:
         return gen_AB, gen_BA
 
 
-# ── Self-check ───────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
-    import sys
-    import tempfile
-
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
     logging.basicConfig(level=logging.INFO)
-
-    from src.model import ResNetGenerator
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        reg = ModelRegistry(tmpdir)
-
-        g_ab = ResNetGenerator()
-        g_ba = ResNetGenerator()
-
-        config = {
-            "epochs": 10,
-            "lr": 2e-4,
-            "lambda_cycle": 10.0,
-            "approach": "frozen-encoder",
-        }
-        reg.save(
-            g_ab,
-            g_ba,
-            run_id="test001",
-            config=config,
-            training_results={
-                "epoch": 10,
-                "cycle_loss": 1.2,
-                "g_loss": 4.5,
-                "d_loss": 0.8,
-            },
-        )
-        reg.save(
-            g_ab,
-            g_ba,
-            run_id="test002",
-            config=config,
-            training_results={
-                "epoch": 20,
-                "cycle_loss": 0.9,
-                "g_loss": 3.8,
-                "d_loss": 0.6,
-            },
-        )
-
-        # Update evaluation section
-        reg.update_meta("test001", evaluation={"fid_ab": 45.2, "lpips_ab": 0.31})
-        reg.update_meta("test002", evaluation={"fid_ab": 38.7, "lpips_ab": 0.25})
-
-        records = reg.list()
-        assert len(records) == 2, f"Expected 2 records, got {len(records)}"
-        assert records[0]["run_id"] == "test002"
-        assert records[0]["evaluation"]["fid_ab"] == 38.7
-        print(f"List OK — {len(records)} experiments")
-
-        # Load best by fid_ab (nested metric, ascending → lowest wins)
-        g_loaded_ab, g_loaded_ba = reg.load_best("fid_ab", ascending=True)
-        assert g_loaded_ab is not None
-        print("Load best (nested fid_ab) OK — loaded by lowest FID")
-
-        # Load best by cycle_loss (nested training metric)
-        g2_ab, _ = reg.load_best("cycle_loss", ascending=True)
-        assert g2_ab is not None
-        print("Load best (nested cycle_loss) OK")
-
-        # Load specific run
-        g_spec_ab, g_spec_ba = reg.load("test001")
-        assert g_spec_ab is not None
-        print("Load specific OK — loaded test001")
-
-        # Error cases
-        try:
-            reg.load("nonexistent")
-            assert False, "Should have raised RunNotFoundError"
-        except RunNotFoundError:
-            print("RunNotFoundError OK")
-
-        try:
-            reg.load_best("nonexistent_metric")
-            assert False, "Should have raised RegistryError"
-        except RegistryError:
-            print("RegistryError OK")
-
-    print("All self-checks passed.")
+    print("registry module — run via pytest")

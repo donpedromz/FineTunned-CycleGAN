@@ -293,31 +293,5 @@ def display_translations(
 # ── Self-check ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import sys
-
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
     logging.basicConfig(level=logging.INFO)
-
-    engine = CycleGANInference()
-    engine.download_checkpoints()
-    engine.load_generators()
-
-    test_lion = list(Path("data/test/lion").glob("*.png"))
-    test_cheetah = list(Path("data/test/cheetah").glob("*.png"))
-
-    if test_lion:
-        result = engine.translate(test_lion[0], "AB")
-        assert result.shape == (256, 256, 3), (
-            f"Expected (256,256,3), got {result.shape}"
-        )
-        print(f"Lion->Cheetah: {result.shape} OK")
-
-    if test_cheetah:
-        result = engine.translate(test_cheetah[0], "BA")
-        assert result.shape == (256, 256, 3), (
-            f"Expected (256,256,3), got {result.shape}"
-        )
-        print(f"Cheetah->Lion: {result.shape} OK")
-
-    print("self-check OK")
+    print("inference module — run via pytest")

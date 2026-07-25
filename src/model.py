@@ -284,45 +284,4 @@ class ResNetGenerator(nn.Module):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-
-    model = ResNetGenerator()
-    n_params = sum(p.numel() for p in model.parameters())
-    x = torch.randn(1, 3, 256, 256)
-    out = model(x)
-
-    assert out.shape == (1, 3, 256, 256), f"Expected (1,3,256,256), got {out.shape}"
-    assert out.min() >= -1.0 and out.max() <= 1.0, "Output not in [-1, 1]"
-    print(
-        f"Generator OK — {n_params:,} params, output {tuple(out.shape)} "
-        f"in [{out.min():.2f}, {out.max():.2f}]"
-    )
-
-    model.freeze_encoder()
-    enc_frozen = sum(
-        1
-        for n, p in model.named_parameters()
-        if n.startswith(("enc1.", "enc2.", "enc3.")) and not p.requires_grad
-    )
-    dec_trainable = sum(
-        1
-        for n, p in model.named_parameters()
-        if not n.startswith(("enc1.", "enc2.", "enc3.")) and p.requires_grad
-    )
-    assert enc_frozen > 0, "Encoder params should be frozen"
-    assert dec_trainable > 0, "Decoder/ResNet params should still be trainable"
-    assert len(model.trainable_parameters()) == dec_trainable
-    print(f"Freeze OK — {enc_frozen} encoder params frozen, {dec_trainable} trainable")
-
-    model.unfreeze()
-    assert all(p.requires_grad for p in model.parameters()), (
-        "Unfreeze should restore all grads"
-    )
-
-    disc = PatchGANDiscriminator()
-    d_params = sum(p.numel() for p in disc.parameters())
-    d_out = disc(x)
-    assert d_out.shape[0] == 1 and d_out.shape[1] == 1, (
-        f"Unexpected disc output: {d_out.shape}"
-    )
-    print(f"Discriminator OK — {d_params:,} params, output {tuple(d_out.shape)}")
-    print("All self-checks passed.")
+    print("model module — run via pytest")

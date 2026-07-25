@@ -32,5 +32,3 @@ checkpoints/
 # Evaluation results (regenerated on each run)
 results/
 
-# Cluster runtime scripts (dev machine-specific)
-scripts/run_jupyter.sh
