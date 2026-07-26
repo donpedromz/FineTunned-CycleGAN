@@ -310,38 +310,12 @@ def train_cyclegan(
     return history
 
 
-def _cuda_free_memory() -> int | None:
-    """Return free GPU memory in bytes, or None if unavailable."""
-    try:
-        return torch.cuda.mem_get_free_memory()
-    except AttributeError:
-        pass
-    try:
-        free = torch.cuda.memory_reserved() - torch.cuda.memory_allocated()
-        return max(free, 0)
-    except Exception:
-        pass
-    return None
-
-
 def _select_device() -> torch.device:
-    """Use CUDA only when it has headroom; otherwise fall back to CPU."""
-    if not torch.cuda.is_available():
-        logger.info("CUDA not available — using CPU")
-        return torch.device("cpu")
-
-    free = _cuda_free_memory()
-    if free is None:
-        logger.info("Could not query GPU memory — using CUDA (no headroom check)")
+    """Select GPU if available, otherwise fall back to CPU."""
+    if torch.cuda.is_available():
+        logger.info("CUDA available — using GPU")
         return torch.device("cuda")
-
-    if free > 1_000_000_000:  # > ~1 GiB free
-        return torch.device("cuda")
-
-    logger.warning(
-        "CUDA available but only %.1f GiB free (need >1 GiB) — falling back to CPU",
-        free / 1_073_741_824,
-    )
+    logger.info("CUDA not available — using CPU")
     return torch.device("cpu")
 
 
