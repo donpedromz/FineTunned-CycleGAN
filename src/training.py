@@ -314,10 +314,17 @@ def _select_device() -> torch.device:
     """Use CUDA only when it has headroom; otherwise fall back to CPU."""
     if torch.cuda.is_available():
         try:
-            if torch.cuda.mem_get_free_memory() > 1_000_000_000:  # > ~1 GiB free
+            free = torch.cuda.mem_get_free_memory()
+            if free > 1_000_000_000:  # > ~1 GiB free
                 return torch.device("cuda")
-        except Exception:
-            pass
+            logger.warning(
+                "CUDA available but only %.1f GiB free (need >1 GiB) — falling back to CPU",
+                free / 1_073_741_824,
+            )
+        except Exception as exc:
+            logger.warning("CUDA available but mem_get_free_memory() failed: %s — falling back to CPU", exc)
+    else:
+        logger.info("CUDA not available — using CPU")
     return torch.device("cpu")
 
 
