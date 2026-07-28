@@ -137,6 +137,55 @@ CUDA_VISIBLE_DEVICES=2 nohup uv run python -m scripts.train --prepare \
 > `CUDA_VISIBLE_DEVICES` funciona a nivel de proceso — cada script ve solo la GPU
 > asignada, sin afectar otros procesos del usuario.
 
+## Jupyter Lab remoto (SSH port-forwarding)
+
+Para usar el notebook (`fine_tuning_experiment.ipynb`) en un servidor sin
+entorno gráfico:
+
+### 1. En el servidor — iniciar Jupyter Lab
+
+```bash
+cd /ruta/al/proyecto
+uv sync
+uv run jupyter lab --no-browser --port=8888
+```
+
+> Sin `--no-browser` intenta abrir Firefox/Chrome en el servidor, lo que
+> falla si no hay display gráfico. El flag `--port` es opcional (default 8888).
+
+### 2. En tu máquina local — crear el túnel SSH
+
+```bash
+ssh -N -L 8888:localhost:8888 usuario@servidor
+```
+
+| Flag | Significado |
+|------|-------------|
+| `-N` | Solo forwarding, no abre shell remota |
+| `-L 8888:localhost:8888` | Puerto local `8888` → `localhost:8888` del servidor |
+
+> Si el servidor usa otro puerto (ej. `8899`), ajustá ambos lados:
+> `ssh -N -L 8899:localhost:8899 usuario@servidor`
+
+### 3. En el navegador — abrir Jupyter
+
+Abrir `http://localhost:8888` e ingresar el token que Jupyter muestra en la
+terminal del servidor (`?token=...`).
+
+### Opción alternativa: tunnel con background
+
+Para que el túnel persista aunque cierres la terminal:
+
+```bash
+ssh -N -L 8888:localhost:8888 usuario@servidor &
+```
+
+O con autossh (reconexión automática si se cae):
+
+```bash
+autossh -N -L 8888:localhost:8888 usuario@servidor
+```
+
 ## Evaluación
 
 Las métricas FID y LPIPS se calculan automáticamente al finalizar cada
